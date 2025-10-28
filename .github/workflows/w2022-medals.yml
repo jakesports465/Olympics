@@ -2,20 +2,21 @@ name: Update 2022 medals JSON
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # every 5 minutes (GitHub minimum)
+    - cron: "*/5 * * * *"     # GitHub minimum is every 5 minutes
   workflow_dispatch:
 
 permissions:
-  contents: write  # allow committing the updated JSON
+  contents: write
 
+# If a new run starts while one is still going, cancel the old one so they never overlap
 concurrency:
   group: medals-2022
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20   # ⬅️ increase headroom
 
     steps:
       - name: Checkout
@@ -26,13 +27,13 @@ jobs:
         with:
           node-version: "20"
 
-      # Run the fetcher 3x inside this job: at 0s, +120s, +240s
+      # Run the fetcher 3x inside this job: 0s, +110s, +220s (≈ every 2 minutes, with buffer)
       - name: Fetch medals 3 times within this run
         run: |
-          for offset in 0 120 240; do
+          for offset in 0 110 220; do
             echo "Run at +${offset}s"
             node fetch-olympics-2022.js || true
-            if [ "$offset" != "240" ]; then sleep 120; fi
+            if [ "$offset" != "220" ]; then sleep 110; fi
           done
 
       - name: Commit if files changed
