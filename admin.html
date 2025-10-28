@@ -7,7 +7,7 @@
 <style>
   :root { --bg:#0b0d10; --card:#12161b; --text:#e8eef4; --muted:#8ea0b3; --accent:#0ea5e9; --br:#1b232d; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial }
   h1,h2 { color:var(--accent); margin:16px 0 8px }
   main { padding:18px; max-width:980px; margin:0 auto; }
   fieldset { border:1px solid var(--br); border-radius:8px; padding:14px; margin:16px 0; background:var(--card); }
@@ -17,6 +17,7 @@
     width:100%; padding:10px; border-radius:8px; border:1px solid var(--br);
     background:#0f141a; color:var(--text);
   }
+  textarea { min-height:120px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace }
   button { margin-top:10px; background:var(--accent); color:white; font-weight:700; cursor:pointer; border:none; }
   button:disabled { opacity:.6; cursor:not-allowed }
   table { width:100%; border-collapse:collapse; margin:8px 0 22px; background:var(--card); border:1px solid var(--br); }
@@ -27,6 +28,10 @@
   .row-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px }
   #status { color:var(--muted); margin-bottom:14px }
   .muted { color:var(--muted) }
+  .inline { display:flex; align-items:center; gap:10px; flex-wrap:wrap }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--br); background:#0f141a; color:var(--muted); font-size:12px }
+  .ok { color:#7ee787 }
+  .bad { color:#ff7b72 }
 </style>
 </head>
 <body>
@@ -34,6 +39,7 @@
   <h1>Fantasy Olympics Admin</h1>
   <div id="status">Connecting to Supabase…</div>
 
+  <!-- Add Player -->
   <fieldset>
     <legend>Add Player</legend>
     <label>Name
@@ -42,6 +48,7 @@
     <button id="btnAddPlayer">Add Player</button>
   </fieldset>
 
+  <!-- Add Pick -->
   <fieldset>
     <legend>Add Pick</legend>
     <div class="row-3">
@@ -62,15 +69,20 @@
       <label>Round
         <input id="pickRound" type="number" min="1" value="1" />
       </label>
-      <div>
-        <button id="btnAddPick" style="margin-top:26px">Add Pick</button>
-      </div>
+      <label>Pick #
+        <input id="pickNo" type="number" min="1" placeholder="1 = first pick of the round" />
+      </label>
     </div>
-    <div class="muted" style="margin-top:6px">Country must be a 3-letter NOC (e.g., USA, NOR). Discipline text must match what results will use (e.g., “Biathlon”).</div>
+    <div class="inline">
+      <button id="btnAddPick">Add Pick</button>
+      <span class="muted">Country must be a 3-letter NOC (e.g., USA, NOR). Discipline text must match what results will use (e.g., “Biathlon”).</span>
+    </div>
+    <div id="pickHint" class="muted"></div>
   </fieldset>
 
+  <!-- Add Result -->
   <fieldset>
-    <legend>Add Result (manual nightly upload)</legend>
+    <legend>Add Result (manual)</legend>
     <div class="row-3">
       <label>Discipline
         <input id="resDiscipline" placeholder="Biathlon" />
@@ -88,8 +100,40 @@
     </div>
     <button id="btnAddResult">Add Result</button>
     <div class="muted" style="margin-top:6px">
-      We now auto-generate a unique <code>event_id</code> like <em>Biathlon-USA-1700000000000-G</em> so the row always saves.
+      We auto-generate an <code>event_id</code> like <em>Biathlon-USA-1700000000000-G</em> when missing.
     </div>
+  </fieldset>
+
+  <!-- Import Results (JSON) -->
+  <fieldset>
+    <legend>Import Results (JSON)</legend>
+    <div class="muted" style="margin-bottom:6px">
+      Accepts an array of objects: <code>[{ "discipline":"Biathlon","country":"USA","medal":"G","ts":"2026-02-08T15:22:00Z","event_id":"optional" }]</code><br/>
+      <span>— <strong>Required:</strong> discipline, country, medal (G/S/B). <strong>Optional:</strong> ts, event_id.</span>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Paste JSON
+          <textarea id="jsonText" placeholder='[{"discipline":"Biathlon","country":"USA","medal":"G"}]'></textarea>
+        </label>
+      </div>
+      <div>
+        <label>…or Upload .json File
+          <input id="jsonFile" type="file" accept=".json,application/json" />
+        </label>
+        <div class="inline">
+          <button id="btnParseJson">Parse & Preview</button>
+          <button id="btnImportJson" disabled>Import to Supabase</button>
+          <span id="jsonStatus" class="pill">No file parsed</span>
+        </div>
+      </div>
+    </div>
+
+    <table id="tblPreview" style="display:none">
+      <thead><tr><th>#</th><th>Discipline</th><th>Country</th><th>Medal</th><th>ts</th><th>event_id</th><th>Valid</th></tr></thead>
+      <tbody></tbody>
+    </table>
   </fieldset>
 
   <h2>Players</h2>
@@ -97,7 +141,7 @@
 
   <h2>Picks</h2>
   <table id="tblPicks">
-    <thead><tr><th>Player</th><th>Country</th><th>Discipline</th><th>Multiplier</th><th>Round</th></tr></thead>
+    <thead><tr><th>Player</th><th>Country</th><th>Discipline</th><th>Multiplier</th><th>Round</th><th>Pick #</th></tr></thead>
     <tbody></tbody>
   </table>
 
@@ -111,26 +155,39 @@
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-  // --- Supabase (your exact project) ---
+  // --- Supabase (your project) ---
   const SUPABASE_URL = "https://mdreidvoocngzailutqy.supabase.co";
   const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kcmVpZHZvb2NuZ3phaWx1dHF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2NDA4MDMsImV4cCI6MjA3NzIxNjgwM30.IEKZpeuNAUsI8Q1p5viw1MjAMSTZbaAREx3_1Mxr2Wc";
   const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  const statusEl = document.getElementById("status");
-  const playerSel = document.getElementById("pickPlayer");
+  const statusEl   = document.getElementById("status");
+  const playerSel  = document.getElementById("pickPlayer");
   const tblPlayers = document.querySelector("#tblPlayers tbody");
-  const tblPicks = document.querySelector("#tblPicks tbody");
+  const tblPicks   = document.querySelector("#tblPicks tbody");
   const tblResults = document.querySelector("#tblResults tbody");
+  const pickHint   = document.getElementById("pickHint");
+
+  // JSON import refs
+  const jsonFile    = document.getElementById("jsonFile");
+  const jsonText    = document.getElementById("jsonText");
+  const btnParse    = document.getElementById("btnParseJson");
+  const btnImport   = document.getElementById("btnImportJson");
+  const jsonStatus  = document.getElementById("jsonStatus");
+  const tblPreview  = document.getElementById("tblPreview");
+  const prevBody    = document.querySelector("#tblPreview tbody");
 
   function safeUpper(s){ return (s || "").trim().toUpperCase(); }
   function titleCase(s){ return (s || "").replace(/\b\w/g, m => m.toUpperCase()); }
+
+  // For preview/import
+  let parsedRows = [];
 
   // --- Load & render ---
   async function loadAll() {
     try {
       const [{ data: players, error: e1 }, { data: picks, error: e2 }, { data: results, error: e3 }] = await Promise.all([
         sb.from("players").select("*").order("name", { ascending: true }),
-        sb.from("picks").select("*"),
+        sb.from("picks").select("*").order("round").order("pick_no").order("id"),
         sb.from("results").select("*").order("ts", { ascending: false })
       ]);
 
@@ -150,7 +207,8 @@
           <td>${p.discipline}</td>
           <td>${p.multiplier}</td>
           <td>${p.round}</td>
-        </tr>`).join("") || `<tr><td colspan="5" class="muted">No picks yet</td></tr>`;
+          <td>${p.pick_no ?? ""}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="muted">No picks yet</td></tr>`;
 
       // Results table
       tblResults.innerHTML = (results || []).map(r => `
@@ -163,6 +221,11 @@
         </tr>`).join("") || `<tr><td colspan="5" class="muted">No results yet</td></tr>`;
 
       statusEl.textContent = "Connected to Supabase ✅";
+
+      // Quick hint for Pick # if table lacks column
+      pickHint.textContent = (picks?.length && !("pick_no" in (picks[0]||{})))
+        ? "Heads up: your 'picks' table may not have a 'pick_no' column yet. This page will still work; adding that column is recommended."
+        : "";
     } catch (err) {
       console.error(err);
       alert(err.message || "Error loading data");
@@ -180,17 +243,31 @@
     await loadAll();
   };
 
-  // --- Add Pick ---
+  // --- Add Pick (with pick_no, with graceful fallback if column missing) ---
   document.getElementById("btnAddPick").onclick = async () => {
-    const player_id = playerSel.value;
-    const country = safeUpper(document.getElementById("pickCountry").value);
+    const player_id  = playerSel.value;
+    const country    = safeUpper(document.getElementById("pickCountry").value);
     const discipline = titleCase(document.getElementById("pickDiscipline").value.trim());
     const multiplier = parseFloat(document.getElementById("pickMultiplier").value) || 1.0;
-    const round = parseInt(document.getElementById("pickRound").value) || 1;
+    const round      = parseInt(document.getElementById("pickRound").value) || 1;
+    const pick_no    = (() => { const v = document.getElementById("pickNo").value; return v === "" ? null : parseInt(v); })();
 
     if (!player_id || !country || !discipline) return alert("Fill Player, Country, and Discipline");
-    const { error } = await sb.from("picks").insert([{ player_id, country, discipline, multiplier, round }]);
+
+    // try with pick_no first
+    let { error } = await sb.from("picks").insert([{ player_id, country, discipline, multiplier, round, pick_no }]);
+
+    // If column doesn't exist (or other schema issue), retry without it
+    if (error && /column .*pick_no/i.test(error.message || "")) {
+      ({ error } = await sb.from("picks").insert([{ player_id, country, discipline, multiplier, round }]));
+      if (!error) {
+        pickHint.textContent = "Note: 'pick_no' column not found. Inserted without Pick #. Consider adding the column to 'picks'.";
+      }
+    }
+
     if (error) return alert(error.message);
+
+    // clear a couple fields
     document.getElementById("pickCountry").value = "";
     document.getElementById("pickDiscipline").value = "";
     await loadAll();
@@ -199,22 +276,122 @@
   // --- Add Result (with generated event_id) ---
   document.getElementById("btnAddResult").onclick = async () => {
     const discipline = titleCase(document.getElementById("resDiscipline").value.trim());
-    const country = safeUpper(document.getElementById("resCountry").value);
-    const medal = document.getElementById("resMedal").value; // "G" | "S" | "B"
+    const country    = safeUpper(document.getElementById("resCountry").value);
+    const medal      = document.getElementById("resMedal").value; // "G" | "S" | "B"
 
     if (!discipline || !country || !medal) return alert("Fill Discipline, Country, and Medal");
 
-    const nowIso = new Date().toISOString();
-    const slugDisc = discipline.replace(/\s+/g, "-");
-    const event_id = `${slugDisc}-${country}-${Date.now()}-${medal}`; // unique & readable
+    const nowIso  = new Date().toISOString();
+    const slug    = discipline.replace(/\s+/g, "-");
+    const event_id = `${slug}-${country}-${Date.now()}-${medal}`;
 
     const row = { event_id, ts: nowIso, discipline, country, medal };
     const { error } = await sb.from("results").insert([row]);
     if (error) return alert(error.message);
 
-    // clear form
     document.getElementById("resDiscipline").value = "";
     document.getElementById("resCountry").value = "";
+    await loadAll();
+  };
+
+  // ---------- JSON Import helpers ----------
+  function parseJsonText(text) {
+    try {
+      const data = JSON.parse(text);
+      if (!Array.isArray(data)) return { error: "JSON must be an array of objects." };
+      const rows = data.map((r, i) => normalizeResult(r, i));
+      return { rows };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+
+  function normalizeResult(obj, idx) {
+    const discipline = titleCase((obj?.discipline || "").toString().trim());
+    const country    = safeUpper((obj?.country || "").toString().trim());
+    const medalRaw   = (obj?.medal || "").toString().trim().toUpperCase();
+    const medal      = (medalRaw === "G" || medalRaw === "S" || medalRaw === "B") ? medalRaw : null;
+    const ts         = obj?.ts ? new Date(obj.ts).toISOString() : new Date().toISOString();
+
+    // Reuse provided event_id or create one
+    const event_id = obj?.event_id && String(obj.event_id).trim()
+      ? String(obj.event_id).trim()
+      : `${discipline.replace(/\s+/g,"-")}-${country}-${Date.now()}-${Math.floor(Math.random()*1e6)}-${medal || "?"}`;
+
+    const valid = Boolean(discipline && country && medal);
+    return { idx: idx+1, discipline, country, medal, ts, event_id, valid };
+  }
+
+  function renderPreview(rows) {
+    prevBody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.idx}</td>
+        <td>${r.discipline}</td>
+        <td>${r.country}</td>
+        <td>${r.medal}</td>
+        <td>${r.ts}</td>
+        <td>${r.event_id}</td>
+        <td>${r.valid ? '<span class="ok">OK</span>' : '<span class="bad">Missing fields</span>'}</td>
+      </tr>
+    `).join("");
+    tblPreview.style.display = rows.length ? "table" : "none";
+  }
+
+  // Parse button (from textarea or file)
+  btnParse.onclick = async () => {
+    let text = jsonText.value.trim();
+
+    // If empty textarea but a file is chosen, read file text
+    if (!text && jsonFile.files?.[0]) {
+      text = await jsonFile.files[0].text();
+    }
+    if (!text) {
+      jsonStatus.textContent = "No JSON provided";
+      btnImport.disabled = true;
+      tblPreview.style.display = "none";
+      return;
+    }
+
+    const { rows, error } = parseJsonText(text);
+    if (error) {
+      jsonStatus.textContent = `Parse error: ${error}`;
+      btnImport.disabled = true;
+      tblPreview.style.display = "none";
+      return;
+    }
+
+    parsedRows = rows;
+    const valids = rows.filter(r => r.valid).length;
+    jsonStatus.textContent = `Parsed ${rows.length} rows • ${valids} valid`;
+    renderPreview(rows.slice(0,200)); // preview first 200
+    btnImport.disabled = valids === 0;
+  };
+
+  // Import button
+  btnImport.onclick = async () => {
+    const valids = parsedRows.filter(r => r.valid);
+    if (!valids.length) {
+      jsonStatus.textContent = "Nothing valid to import";
+      return;
+    }
+
+    // Batch in chunks to avoid payload limits
+    const chunkSize = 500;
+    let ok = 0, fail = 0, lastErr = "";
+    for (let i=0; i<valids.length; i+=chunkSize) {
+      const batch = valids.slice(i, i+chunkSize).map(r => ({
+        event_id: r.event_id,
+        ts: r.ts,
+        discipline: r.discipline,
+        country: r.country,
+        medal: r.medal
+      }));
+      const { error } = await sb.from("results").insert(batch);
+      if (error) { fail += batch.length; lastErr = error.message || String(error); }
+      else { ok += batch.length; }
+    }
+
+    jsonStatus.textContent = `Import done • inserted ${ok}, failed ${fail}${fail?` • last error: ${lastErr}`:""}`;
     await loadAll();
   };
 
@@ -224,6 +401,14 @@
   // Optional: live refresh when results change (in case updater writes)
   sb.channel("admin-results")
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "results" }, () => loadAll())
+    .subscribe();
+
+  // Also refresh on picks / players changes while drafting
+  sb.channel("admin-picks")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "picks" }, () => loadAll())
+    .subscribe();
+  sb.channel("admin-players")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "players" }, () => loadAll())
     .subscribe();
 </script>
 </body>
