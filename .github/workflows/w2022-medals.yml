@@ -1,0 +1,44 @@
+name: Update 2022 medals JSON
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes (GitHub minimum)
+  workflow_dispatch:
+
+permissions:
+  contents: write  # allow committing the updated JSON
+
+concurrency:
+  group: medals-2022
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Run the fetcher 3x inside this job: at 0s, +120s, +240s
+      - name: Fetch medals 3 times within this run
+        run: |
+          for offset in 0 120 240; do
+            echo "Run at +${offset}s"
+            node fetch-olympics-2022.js || true
+            if [ "$offset" != "240" ]; then sleep 120; fi
+          done
+
+      - name: Commit if files changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update 2022 medals JSON [skip ci]"
+          file_pattern: |
+            raw_w2022_medals.json
+            results_w2022_normalized.json
