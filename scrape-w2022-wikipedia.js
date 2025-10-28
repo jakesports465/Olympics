@@ -1,4 +1,4 @@
-// scrape-w2022-wikipedia.js
+// scrape-w2022-wikipedia.js (rev2)
 // Node 20+. Scrapes Wikipedia medal tables for Beijing 2022 (event-level).
 // Output: results_w2022_wiki.json with rows {discipline, event, country, medal, ts, event_id}
 
@@ -7,31 +7,21 @@ import { load as cheerioLoad } from "cheerio";
 
 const URL = "https://en.wikipedia.org/wiki/List_of_2022_Winter_Olympics_medal_winners";
 
-// Common Winter NOCs (good coverage for 2022). Add if you see a miss.
+// Expanded mapping for Winter NOCs
 const COUNTRY_TO_NOC = {
   "Norway":"NOR","Sweden":"SWE","Finland":"FIN","United States":"USA","Canada":"CAN",
   "Germany":"GER","Austria":"AUT","Switzerland":"SUI","Italy":"ITA","France":"FRA",
   "Netherlands":"NED","People's Republic of China":"CHN","China":"CHN","Japan":"JPN",
-  "South Korea":"KOR","Republic of Korea":"KOR","Great Britain":"GBR","United Kingdom":"GBR",
-  "United Team of Germany":"EUA","Russian Olympic Committee":"ROC","Russia":"ROC",
+  "South Korea":"KOR","Republic of Korea":"KOR",
+  "Great Britain":"GBR","United Kingdom":"GBR","Team GB":"GBR",
+  "Russian Olympic Committee":"ROC","Russia":"ROC",
   "Czech Republic":"CZE","Slovakia":"SVK","Poland":"POL","Slovenia":"SLO","Hungary":"HUN",
   "Belgium":"BEL","Spain":"ESP","Australia":"AUS","New Zealand":"NZL","Ukraine":"UKR",
-  "Latvia":"LAT","Estonia":"EST","Liechtenstein":"LIE"
+  "Latvia":"LAT","Estonia":"EST","Liechtenstein":"LIE","Denmark":"DEN"
 };
 
-// Medal text → letter
-function medalLetter(x) {
-  const s = (x || "").toLowerCase();
-  if (s.includes("gold")) return "G";
-  if (s.includes("silver")) return "S";
-  if (s.includes("bronze")) return "B";
-  return null;
-}
-
-// For Wikipedia tables we won’t have exact times; pick a stable ISO in 2022.
 const DEFAULT_TS = "2022-02-01T00:00:00.000Z";
 
-// Build a deterministic event id
 function makeEventId(discipline, event, noc, medal) {
   const slugD = String(discipline).trim().replace(/\s+/g,"-");
   const slugE = String(event).trim().replace(/\s+/g,"-");
@@ -49,56 +39,43 @@ async function fetchHtml(url) {
   return await res.text();
 }
 
-// Try to extract the country name out of a medal cell.
-// Strategy: take the link immediately after the flagicon, else scan links for one we recognize.
+// Extract a country name out of a medal <td>
 function extractCountryName($, td) {
   const $td = $(td);
-  let country = null;
 
+  // 1) Typical: <span class="flagicon">…</span> <a title="Netherlands">Netherlands</a>
   const flag = $td.find("span.flagicon").first();
   if (flag.length) {
     const nextLink = flag.nextAll('a[title]').first();
-    if (nextLink.length) {
-      country = nextLink.attr('title');
-    }
+    if (nextLink.length) return nextLink.attr("title");
   }
 
-  if (!country) {
-    const links = $td.find("a[title]");
-    links.each((_, a) => {
-      const title = $(a).attr("title");
-      if (COUNTRY_TO_NOC[title]) {
-        country = title;
-        return false; // break
-      }
-    });
+  // 2) Any link in the cell whose title matches a known country
+  const links = $td.find("a[title]");
+  for (const a of links.toArray()) {
+    const title = $(a).attr("title");
+    if (COUNTRY_TO_NOC[title]) return title;
   }
 
-  // Fallback: sometimes country name text (rare)
-  if (!country) {
-    const text = $td.text().trim();
-    // crude matches for "(USA)" etc.
-    const m = text.match(/\(([A-Z]{3})\)/);
-    if (m) {
-      // reverse-map if we can
-      const noc = m[1];
-      const name = Object.keys(COUNTRY_TO_NOC).find(k => COUNTRY_TO_NOC[k] === noc);
-      if (name) country = name;
-    }
+  // 3) Fallback: raw text scan (very rare)
+  const raw = $td.text().replace(/\[[^\]]*\]/g,"").trim();
+  for (const name of Object.keys(COUNTRY_TO_NOC)) {
+    if (raw.includes(name)) return name;
   }
-
-  return country || null;
+  return null;
 }
 
-// Parse one wikitable: columns usually: Event | Gold | Silver | Bronze
 function parseMedalTable($, table, discipline) {
   const rows = [];
   $(table).find("tr").each((i, tr) => {
     if (i === 0) return; // header
     const tds = $(tr).find("td");
     if (tds.length < 4) return;
-    const event = $(tds[0]).text().replace(/\[[^\]]*\]/g,"").trim(); // strip refs
 
+    const event = $(tds[0]).text().replace(/\[[^\]]*\]/g,"").trim();
+    if (!event) return;
+
+    // cells: Gold, Silver, Bronze
     const medalCells = [
       { medal: "G", td: tds[1] },
       { medal: "S", td: tds[2] },
@@ -109,7 +86,7 @@ function parseMedalTable($, table, discipline) {
       const countryName = extractCountryName($, mc.td);
       if (!countryName) continue;
       const noc = COUNTRY_TO_NOC[countryName];
-      if (!noc) continue; // skip if not in map; add mapping above if you see misses
+      if (!noc) continue;
 
       rows.push({
         discipline,
@@ -124,37 +101,56 @@ function parseMedalTable($, table, discipline) {
   return rows;
 }
 
+// Walk siblings from a heading node until next heading of SAME OR HIGHER level
+function collectTablesFromSection($, headingEl) {
+  const out = [];
+  const tag = headingEl.tagName.toLowerCase();
+  const level = Number(tag.replace("h","")); // 2 or 3
+
+  let sib = $(headingEl).next();
+  while (sib.length) {
+    const tagName = (sib[0].tagName || "").toLowerCase();
+    if (/^h[1-6]$/.test(tagName)) {
+      const nextLevel = Number(tagName.slice(1));
+      if (nextLevel <= level) break; // stop at same or higher section
+    }
+
+    // Look for medal tables
+    if (sib.is("table.wikitable") || sib.find("table.wikitable").length) {
+      const discipline = $(headingEl).find(".mw-headline").first().text().trim();
+      const tables = sib.is("table.wikitable")
+        ? [sib]
+        : sib.find("table.wikitable").toArray().map(el => $(el));
+
+      for (const $tbl of tables) {
+        out.push({ discipline, tbl: $tbl });
+      }
+    }
+    sib = sib.next();
+  }
+  return out;
+}
+
 (async () => {
   try {
     const html = await fetchHtml(URL);
     const $ = cheerioLoad(html);
 
+    const sections =
+      $("h2 .mw-headline, h3 .mw-headline")
+        .toArray()
+        .map(span => $(span).closest("h2, h3")[0]);
+
+    const candidates = [];
+    for (const h of sections) {
+      candidates.push(...collectTablesFromSection($, h));
+    }
+
     const out = [];
+    for (const { discipline, tbl } of candidates) {
+      out.push(...parseMedalTable($, tbl, discipline));
+    }
 
-    // Wikipedia structure: <h2><span class="mw-headline">Biathlon</span></h2> then one or more .wikitable(s)
-    $("h2 .mw-headline").each((_, el) => {
-      const discipline = $(el).text().trim();
-      if (!discipline) return;
-
-      // Skip non-sport sections like "See also", "Notes".
-      const skip = /See also|Notes|References|External links|Medal winners by sport/i.test(discipline);
-      if (skip) return;
-
-      // From h2 -> following siblings until next h2; collect .wikitable(s)
-      let sib = $(el).closest("h2").next();
-      while (sib.length && sib[0].tagName !== "h2") {
-        sib.find("table.wikitable").each((__, tbl) => {
-          out.push(...parseMedalTable($, tbl, discipline));
-        });
-        // a .wikitable might be the sibling itself
-        if (sib.is("table.wikitable")) {
-          out.push(...parseMedalTable($, sib, discipline));
-        }
-        sib = sib.next();
-      }
-    });
-
-    // Deduplicate by event_id (rare, but safe)
     const seen = new Set();
     const finalRows = out.filter(r => (seen.has(r.event_id) ? false : (seen.add(r.event_id), true)));
 
@@ -162,7 +158,7 @@ function parseMedalTable($, table, discipline) {
     await fs.writeFile("results_w2022_wiki.json", JSON.stringify(finalRows, null, 2));
     console.log("Saved results_w2022_wiki.json ✅");
   } catch (e) {
-    console.error("Scrape failed:", e.message);
+    console.error("Scrape failed:", e);
     process.exit(1);
   }
 })();
