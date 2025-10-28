@@ -237,7 +237,10 @@
   document.getElementById("btnAddPlayer").onclick = async () => {
     const name = document.getElementById("playerName").value.trim();
     if (!name) return alert("Enter a name");
-    const { error } = await sb.from("players").insert([{ name }]);
+    const { error } = await sb
+  .from("results")
+  .upsert(rows, { onConflict: "event_id", ignoreDuplicates: true });
+
     if (error) return alert(error.message);
     document.getElementById("playerName").value = "";
     await loadAll();
@@ -413,3 +416,4 @@
 </script>
 </body>
 </html>
+
