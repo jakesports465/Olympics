@@ -1,0 +1,37 @@
+name: Scrape 2022 medals from Wikipedia
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes (you can change to @hourly)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-w2022
+  cancel-in-progress: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install cheerio (HTML parser)
+        run: npm install cheerio@1
+
+      - name: Scrape Wikipedia ➜ JSON
+        run: node scrape-w2022-wikipedia.js
+
+      - name: Commit if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update results_w2022_wiki.json [skip ci]"
+          file_pattern: results_w2022_wiki.json
