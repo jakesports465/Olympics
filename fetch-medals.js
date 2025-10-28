@@ -13,7 +13,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // --- 2.  Medal feed (Option B) ---
 const SOURCE_URL =
-  "https://olympics.com/en/api/v1/medals?game=W2022"; // 2022 feed used for testing
+  "https://raw.githubusercontent.com/jakesports465/Olympics/main/medals.json"; // 2022 feed used for testing
 // When 2026 begins, change to ?game=W2026
 
 // --- 3.  Helpers ---
@@ -95,3 +95,4 @@ main().catch((e) => {
   console.error("[Updater] Fatal:", e);
   process.exit(1);
 });
+
