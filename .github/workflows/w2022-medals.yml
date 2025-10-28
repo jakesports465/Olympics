@@ -1,14 +1,14 @@
+# .github/workflows/w2022-medals.yml
 name: Update 2022 medals JSON
 
 on:
   schedule:
-    - cron: "*/5 * * * *"     # GitHub minimum is every 5 minutes
+    - cron: "*/5 * * * *"   # or @hourly for a static Games
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# If a new run starts while one is still going, cancel the old one so they never overlap
 concurrency:
   group: medals-2022
   cancel-in-progress: true
@@ -16,30 +16,18 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 20   # ⬅️ increase headroom
+    timeout-minutes: 10
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
 
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+      - name: Scrape medals from pages
+        run: node scrape-w2022-from-page.js || true
 
-      # Run the fetcher 3x inside this job: 0s, +110s, +220s (≈ every 2 minutes, with buffer)
-      - name: Fetch medals 3 times within this run
-        run: |
-          for offset in 0 110 220; do
-            echo "Run at +${offset}s"
-            node fetch-olympics-2022.js || true
-            if [ "$offset" != "220" ]; then sleep 110; fi
-          done
-
-      - name: Commit if files changed
+      - name: Commit if changed
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: update 2022 medals JSON [skip ci]"
-          file_pattern: |
-            raw_w2022_medals.json
-            results_w2022_normalized.json
+          file_pattern: results_w2022_normalized.json
