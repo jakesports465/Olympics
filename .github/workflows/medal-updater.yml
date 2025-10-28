@@ -1,15 +1,19 @@
 name: Medal Updater
 on:
   schedule:
-    - cron: "*/2 * * * *"    # every 2 minutes
+    - cron: "*/2 * * * *"
   workflow_dispatch:
+
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "20"     # ← upgrade to Node 20
+
       - run: npm install @supabase/supabase-js@2
       - run: node fetch-medals.js
