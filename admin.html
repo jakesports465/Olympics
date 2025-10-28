@@ -1,5 +1,235 @@
 <!DOCTYPE html>
+<html lang="en"><!DOCTYPE html>
 <html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Fantasy Olympics — Admin</title>
+<style>
+  :root { --bg:#0b0d10; --card:#12161b; --text:#e8eef4; --muted:#8ea0b3; --accent:#0ea5e9; --br:#1b232d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial }
+  h1,h2 { color:var(--accent); margin:16px 0 8px }
+  main { padding:18px; max-width:980px; margin:0 auto; }
+  fieldset { border:1px solid var(--br); border-radius:8px; padding:14px; margin:16px 0; background:var(--card); }
+  legend { padding:0 6px; color:var(--muted); }
+  label { display:block; margin-top:8px; font-size:14px; color:#b7c6d6 }
+  input,select,button,textarea {
+    width:100%; padding:10px; border-radius:8px; border:1px solid var(--br);
+    background:#0f141a; color:var(--text);
+  }
+  button { margin-top:10px; background:var(--accent); color:white; font-weight:700; cursor:pointer; border:none; }
+  button:disabled { opacity:.6; cursor:not-allowed }
+  table { width:100%; border-collapse:collapse; margin:8px 0 22px; background:var(--card); border:1px solid var(--br); }
+  th,td { padding:10px; border-bottom:1px solid var(--br); text-align:left; }
+  th { background:#111721; color:#a9bad1; position:sticky; top:0 }
+  tr:hover td { background:#0f141a }
+  .row { display:grid; grid-template-columns:repeat(2,1fr); gap:10px }
+  .row-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px }
+  #status { color:var(--muted); margin-bottom:14px }
+  .muted { color:var(--muted) }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fantasy Olympics Admin</h1>
+  <div id="status">Connecting to Supabase…</div>
+
+  <fieldset>
+    <legend>Add Player</legend>
+    <label>Name
+      <input id="playerName" placeholder="e.g., Jake" />
+    </label>
+    <button id="btnAddPlayer">Add Player</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Add Pick</legend>
+    <div class="row-3">
+      <label>Player
+        <select id="pickPlayer"></select>
+      </label>
+      <label>Country (NOC code)
+        <input id="pickCountry" placeholder="USA, NOR, CAN" />
+      </label>
+      <label>Discipline
+        <input id="pickDiscipline" placeholder="Biathlon, Curling, …" />
+      </label>
+    </div>
+    <div class="row-3">
+      <label>Multiplier
+        <input id="pickMultiplier" type="number" step="0.1" value="1.0" />
+      </label>
+      <label>Round
+        <input id="pickRound" type="number" min="1" value="1" />
+      </label>
+      <div>
+        <button id="btnAddPick" style="margin-top:26px">Add Pick</button>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:6px">Country must be a 3-letter NOC (e.g., USA, NOR). Discipline text must match what results will use (e.g., “Biathlon”).</div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Add Result (manual nightly upload)</legend>
+    <div class="row-3">
+      <label>Discipline
+        <input id="resDiscipline" placeholder="Biathlon" />
+      </label>
+      <label>Country (NOC)
+        <input id="resCountry" placeholder="USA" />
+      </label>
+      <label>Medal
+        <select id="resMedal">
+          <option value="G">Gold</option>
+          <option value="S">Silver</option>
+          <option value="B">Bronze</option>
+        </select>
+      </label>
+    </div>
+    <button id="btnAddResult">Add Result</button>
+    <div class="muted" style="margin-top:6px">
+      We now auto-generate a unique <code>event_id</code> like <em>Biathlon-USA-1700000000000-G</em> so the row always saves.
+    </div>
+  </fieldset>
+
+  <h2>Players</h2>
+  <table id="tblPlayers"><thead><tr><th>Name</th></tr></thead><tbody></tbody></table>
+
+  <h2>Picks</h2>
+  <table id="tblPicks">
+    <thead><tr><th>Player</th><th>Country</th><th>Discipline</th><th>Multiplier</th><th>Round</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Results</h2>
+  <table id="tblResults">
+    <thead><tr><th>Event ID</th><th>Discipline</th><th>Country</th><th>Medal</th><th>Time Stamp</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</main>
+
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+  // --- Supabase (your exact project) ---
+  const SUPABASE_URL = "https://mdreidvoocngzailutqy.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kcmVpZHZvb2NuZ3phaWx1dHF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2NDA4MDMsImV4cCI6MjA3NzIxNjgwM30.IEKZpeuNAUsI8Q1p5viw1MjAMSTZbaAREx3_1Mxr2Wc";
+  const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const statusEl = document.getElementById("status");
+  const playerSel = document.getElementById("pickPlayer");
+  const tblPlayers = document.querySelector("#tblPlayers tbody");
+  const tblPicks = document.querySelector("#tblPicks tbody");
+  const tblResults = document.querySelector("#tblResults tbody");
+
+  function safeUpper(s){ return (s || "").trim().toUpperCase(); }
+  function titleCase(s){ return (s || "").replace(/\b\w/g, m => m.toUpperCase()); }
+
+  // --- Load & render ---
+  async function loadAll() {
+    try {
+      const [{ data: players, error: e1 }, { data: picks, error: e2 }, { data: results, error: e3 }] = await Promise.all([
+        sb.from("players").select("*").order("name", { ascending: true }),
+        sb.from("picks").select("*"),
+        sb.from("results").select("*").order("ts", { ascending: false })
+      ]);
+
+      if (e1) throw e1;
+      if (e2) throw e2;
+      if (e3) throw e3;
+
+      // Players dropdown + table
+      playerSel.innerHTML = (players || []).map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+      tblPlayers.innerHTML = (players || []).map(p => `<tr><td>${p.name}</td></tr>`).join("") || `<tr><td class="muted">No players yet</td></tr>`;
+
+      // Picks table
+      tblPicks.innerHTML = (picks || []).map(p => `
+        <tr>
+          <td>${(players || []).find(x=>x.id===p.player_id)?.name || "?"}</td>
+          <td>${p.country}</td>
+          <td>${p.discipline}</td>
+          <td>${p.multiplier}</td>
+          <td>${p.round}</td>
+        </tr>`).join("") || `<tr><td colspan="5" class="muted">No picks yet</td></tr>`;
+
+      // Results table
+      tblResults.innerHTML = (results || []).map(r => `
+        <tr>
+          <td>${r.event_id || "-"}</td>
+          <td>${r.discipline}</td>
+          <td>${r.country}</td>
+          <td>${r.medal}</td>
+          <td>${r.ts ? new Date(r.ts).toLocaleString() : "-"}</td>
+        </tr>`).join("") || `<tr><td colspan="5" class="muted">No results yet</td></tr>`;
+
+      statusEl.textContent = "Connected to Supabase ✅";
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Error loading data");
+      statusEl.textContent = "Error loading — check console";
+    }
+  }
+
+  // --- Add Player ---
+  document.getElementById("btnAddPlayer").onclick = async () => {
+    const name = document.getElementById("playerName").value.trim();
+    if (!name) return alert("Enter a name");
+    const { error } = await sb.from("players").insert([{ name }]);
+    if (error) return alert(error.message);
+    document.getElementById("playerName").value = "";
+    await loadAll();
+  };
+
+  // --- Add Pick ---
+  document.getElementById("btnAddPick").onclick = async () => {
+    const player_id = playerSel.value;
+    const country = safeUpper(document.getElementById("pickCountry").value);
+    const discipline = titleCase(document.getElementById("pickDiscipline").value.trim());
+    const multiplier = parseFloat(document.getElementById("pickMultiplier").value) || 1.0;
+    const round = parseInt(document.getElementById("pickRound").value) || 1;
+
+    if (!player_id || !country || !discipline) return alert("Fill Player, Country, and Discipline");
+    const { error } = await sb.from("picks").insert([{ player_id, country, discipline, multiplier, round }]);
+    if (error) return alert(error.message);
+    document.getElementById("pickCountry").value = "";
+    document.getElementById("pickDiscipline").value = "";
+    await loadAll();
+  };
+
+  // --- Add Result (with generated event_id) ---
+  document.getElementById("btnAddResult").onclick = async () => {
+    const discipline = titleCase(document.getElementById("resDiscipline").value.trim());
+    const country = safeUpper(document.getElementById("resCountry").value);
+    const medal = document.getElementById("resMedal").value; // "G" | "S" | "B"
+
+    if (!discipline || !country || !medal) return alert("Fill Discipline, Country, and Medal");
+
+    const nowIso = new Date().toISOString();
+    const slugDisc = discipline.replace(/\s+/g, "-");
+    const event_id = `${slugDisc}-${country}-${Date.now()}-${medal}`; // unique & readable
+
+    const row = { event_id, ts: nowIso, discipline, country, medal };
+    const { error } = await sb.from("results").insert([row]);
+    if (error) return alert(error.message);
+
+    // clear form
+    document.getElementById("resDiscipline").value = "";
+    document.getElementById("resCountry").value = "";
+    await loadAll();
+  };
+
+  // Initial load
+  await loadAll();
+
+  // Optional: live refresh when results change (in case updater writes)
+  sb.channel("admin-results")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "results" }, () => loadAll())
+    .subscribe();
+</script>
+</body>
+</html>
+
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -164,3 +394,4 @@
 </script>
 </body>
 </html>
+
