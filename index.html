@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Fantasy Olympics — 2026</title>
+<style>
+  :root {
+    --bg:#0b0d10; --card:#12161b; --text:#e8eef4; --accent:#007bff;
+  }
+  body {
+    background:var(--bg); color:var(--text);
+    font-family:system-ui, sans-serif; margin:0; padding:20px;
+  }
+  h1 { text-align:center; color:var(--accent); margin-bottom:1em; }
+  table { width:100%; border-collapse:collapse; margin-top:1em; }
+  th, td {
+    border-bottom:1px solid #1e252f;
+    padding:8px; text-align:left;
+  }
+  th { background:#181c23; }
+  tr:hover { background:#11161e; }
+  #status { margin-top:1em; font-size:0.9em; color:#8ea0b3; }
+  .muted { color:#8ea0b3; }
+</style>
+</head>
+<body>
+<h1>Fantasy Olympics — 2026 Leaderboard</h1>
+
+<div id="status" class="muted">Connecting to Supabase…</div>
+
+<table id="leaderboard">
+  <thead>
+    <tr><th>Player</th><th>Points</th><th>Gold</th><th>Silver</th><th>Bronze</th></tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+  // --- 1.  Connect to your Supabase project  ---
+  const SUPABASE_URL = "https://mdreidvoocngzailutqy.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kcmVpZHZvb2NuZ3phaWx1dHF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2NDA4MDMsImV4cCI6MjA3NzIxNjgwM30.IEKZpeuNAUsI8Q1p5viw1MjAMSTZbaAREx3_1Mxr2Wc";
+  const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const statusEl = document.getElementById("status");
+  const tbody = document.querySelector("#leaderboard tbody");
+
+  // --- 2.  Simple scoring weights ---
+  const MEDAL_POINTS = { G:3, S:2, B:1 };
+
+  // --- 3.  Load initial data ---
+  async function loadData() {
+    statusEl.textContent = "Loading data…";
+
+    const { data: players } = await sb.from("players").select("id,name");
+    const { data: picks } = await sb.from("picks").select("id,player_id,country,discipline,multiplier");
+    const { data: results } = await sb.from("results").select("*").order("ts");
+
+    window.state = { players, picks, results };
+    render();
+    statusEl.textContent = "Live — updates automatically";
+  }
+
+  // --- 4.  Listen for live medal updates ---
+  function subscribeRealtime() {
+    sb.channel("results-channel")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "results" },
+        payload => {
+          window.state.results.push(payload.new);
+          render();
+        })
+      .subscribe();
+  }
+
+  // --- 5.  Compute leaderboard ---
+  function render() {
+    const { players, picks, results } = window.state;
+    const scores = {};
+
+    players.forEach(p => {
+      scores[p.id] = { name:p.name, points:0, G:0, S:0, B:0 };
+    });
+
+    results.forEach(r => {
+      const matches = picks.filter(p => 
+        p.country === r.country && p.discipline === r.discipline);
+      matches.forEach(m => {
+        const pts = MEDAL_POINTS[r.medal] * (m.multiplier || 1);
+        const s = scores[m.player_id];
+        if (s) {
+          s.points += pts;
+          s[r.medal] += 1;
+        }
+      });
+    });
+
+    const arr = Object.values(scores).sort((a,b)=>b.points - a.points);
+    tbody.innerHTML = arr.map(s => `
+      <tr>
+        <td>${s.name}</td>
+        <td>${s.points.toFixed(1)}</td>
+        <td>${s.G}</td>
+        <td>${s.S}</td>
+        <td>${s.B}</td>
+      </tr>`).join("");
+  }
+
+  loadData();
+  subscribeRealtime();
+</script>
+</body>
+</html>
