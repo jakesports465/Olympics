@@ -8,13 +8,14 @@
       "bronze": "GER",
       "timestamp": "2025-10-28T12:00:00Z"
     },
-    {
-      "id": "TEST-EVENT-002",
-      "eventUnit": { "discipline": "curling", "event": "Mixed Doubles" },
-      "gold": "CAN",
-      "silver": "USA",
-      "bronze": "SWE",
-      "timestamp": "2025-10-28T13:00:00Z"
-    }
+  {
+  "id": "TEST-EVENT-003",
+  "eventUnit": { "discipline": "biathlon", "event": "Women 7.5km" },
+  "gold": "SWE",
+  "silver": "NOR",
+  "bronze": "GER",
+  "timestamp": "2025-10-28T14:00:00Z"
+}
+
   ]
 }
