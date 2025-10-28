@@ -1,0 +1,20 @@
+{
+  "medalSets": [
+    {
+      "id": "TEST-EVENT-001",
+      "eventUnit": { "discipline": "biathlon", "event": "Men 10km" },
+      "gold": "NOR",
+      "silver": "FRA",
+      "bronze": "GER",
+      "timestamp": "2025-10-28T12:00:00Z"
+    },
+    {
+      "id": "TEST-EVENT-002",
+      "eventUnit": { "discipline": "curling", "event": "Mixed Doubles" },
+      "gold": "CAN",
+      "silver": "USA",
+      "bronze": "SWE",
+      "timestamp": "2025-10-28T13:00:00Z"
+    }
+  ]
+}
