@@ -233,7 +233,7 @@
     lbBody.innerHTML = arr.map(s=>`
       <tr>
         <td>${s.name}</td>
-        <td>${s.points.toFixed(1)}</td>
+        <td>${s.points.toFixed(2)}</td>
         <td>${s.G}</td>
         <td>${s.S}</td>
         <td>${s.B}</td>
@@ -260,7 +260,7 @@
           <td>${byPlayer.get(p.player_id) || "?"}</td>
           <td>${p.country}</td>
           <td>${p.discipline}</td>
-          <td>${(p.multiplier||1).toFixed(1)}</td>
+          <td>${(p.multiplier||1).toFixed(2)}</td>
           <td>${p.round||""}</td>
         </tr>
       `).join("");
@@ -332,4 +332,5 @@
 </script>
 </body>
 </html>
+
 
