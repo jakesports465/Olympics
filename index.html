@@ -37,11 +37,43 @@
   .row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
   @media (max-width:900px){ .row{grid-template-columns:1fr} }
 
-  /* draft board cells */
-  .slot{min-width:170px}
-  .slot strong{font-weight:700}
-  .slot .meta{font-size:12px;color:var(--muted)}
-  .slot .chip{display:inline-block;margin-top:6px;padding:2px 8px;border:1px solid var(--br);border-radius:999px;background:#0f141a;font-size:11px}
+  /* --- Draft board: compact + always starts left --- */
+  .board-wrap{
+    overflow-x:auto;
+    margin-top:10px;
+    -webkit-overflow-scrolling:touch;
+  }
+  #tblBoard{
+    width:100%;
+    table-layout:fixed;          /* compress columns */
+  }
+  #tblBoard th, #tblBoard td{
+    padding:6px 5px;             /* tighter */
+  }
+  #tblBoard tbody th{
+    width:90px;                  /* smaller Round column */
+    white-space:nowrap;
+  }
+  .slot{min-width:0}
+  .slot .meta{
+    font-size:10px;
+    color:var(--muted);
+    line-height:1.2;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .slot .chip{
+    display:inline-block;
+    margin-top:4px;
+    padding:1px 6px;
+    border:1px solid var(--br);
+    border-radius:999px;
+    background:#0f141a;
+    font-size:10px;
+    white-space:nowrap;
+  }
+
   .nowrap{white-space:nowrap}
   .center{ text-align:center }
 </style>
@@ -93,11 +125,14 @@
   <!-- Draft Board (Snake) -->
   <section id="tab-board" class="tab">
     <div class="card">
-      <div class="muted">Snake order per round. In each round, picks are ordered by insert time (earlier = lower pick #). Odd rounds go left→right; even rounds right→left.</div>
-      <table id="tblBoard">
-        <thead id="boardHead"></thead>
-        <tbody id="boardBody"></tbody>
-      </table>
+      <div class="muted">Snake order per round. Odd rounds go left→right; even rounds right→left.</div>
+
+      <div class="board-wrap" id="boardWrap">
+        <table id="tblBoard">
+          <thead id="boardHead"></thead>
+          <tbody id="boardBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -117,7 +152,6 @@
 
 <script type="module">
   import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-
 
   // Supabase (your project)
   const SUPABASE_URL = "https://mdreidvoocngzailutqy.supabase.co";
@@ -141,6 +175,12 @@
       document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
       btn.classList.add("active");
       document.getElementById("tab-"+btn.dataset.tab).classList.add("active");
+
+      // when opening the draft board, force scroll to the far left
+      if(btn.dataset.tab === "board"){
+        const wrap = document.getElementById("boardWrap");
+        if(wrap) wrap.scrollLeft = 0;
+      }
     });
   });
 
@@ -194,7 +234,6 @@
     sb.channel("live-picks")
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"picks"}, payload=>{
         state.picks.push(payload.new);
-        // keep picks sorted by round,id for board
         state.picks.sort((a,b)=> (a.round-b.round) || (a.id-b.id));
         renderPicks();
         renderDraftBoard();
@@ -267,47 +306,54 @@
     picksBody.innerHTML = rows || `<tr><td colspan="5" class="muted">No picks yet</td></tr>`;
   }
 
-  // draft board (snake)
+  // draft board (snake) — NO NAMES IN HEADER
   function renderDraftBoard(){
-    const players = state.players.slice(); // [{id,name}]
-    const byPlayer = new Map(players.map(p=>[p.id,p.name]));
+    const wrap = document.getElementById("boardWrap");
 
-    // Determine number of teams and max rounds in data
-    const numTeams = players.length || Math.max( (new Set(state.picks.map(p=>p.player_id))).size, 0 );
-    const maxRound = Math.max(0, ...state.picks.map(p=>p.round || 0));
+    const players = state.players.slice();
+    const numTeams = players.length || Math.max((new Set(state.picks.map(p=>p.player_id))).size, 0);
+    const maxRound = Math.max(1, ...state.picks.map(p=>p.round || 1));
 
-  
+    if(!numTeams){
+      boardHead.innerHTML = "";
+      boardBody.innerHTML = `<tr><td class="muted">No draft picks yet</td></tr>`;
+      if(wrap) wrap.scrollLeft = 0;
+      return;
+    }
 
-    // Figure base order from Round 1 earliest picks; fallback: alphabetical by player name
-    const r1 = state.picks.filter(p=>p.round===1).sort((a,b)=>a.id-b.id);
-    const orderIds = r1.length===numTeams
-      ? r1.map(p=>p.player_id)
-      : players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>p.id);
+    // Empty header cells (no names)
+    boardHead.innerHTML = `
+      <tr>
+        <th class="nowrap">Round</th>
+        ${Array.from({length:numTeams}, ()=>`<th></th>`).join("")}
+      </tr>
+    `;
 
-    // Build a map { round -> [slots of length numTeams] } and fill via snake
     const bodyRows = [];
-    for(let round=1; round<=Math.max(maxRound,1); round++){
+
+    for(let round=1; round<=maxRound; round++){
       const rowSlots = Array.from({length:numTeams}, ()=>`<td class="slot muted">—</td>`);
       const picksThisRound = state.picks.filter(p=>p.round===round).sort((a,b)=>a.id-b.id);
 
       picksThisRound.forEach((pick, idxInRound)=>{
-        // slot index in left-to-right order
         let col = idxInRound;
-        if (round % 2 === 0) col = (numTeams-1) - idxInRound; // snake reverse on even rounds
-        if (col<0 || col>=numTeams) return; // ignore overflow
+        if (round % 2 === 0) col = (numTeams-1) - idxInRound;
+        if (col<0 || col>=numTeams) return;
 
-        const playerName = byPlayer.get(pick.player_id) || "Player";
         rowSlots[col] = `
           <td class="slot">
-            <strong>${playerName}</strong>
             <div class="meta">${pick.country} · ${pick.discipline} × ${(pick.multiplier||1)}</div>
-            <span class="chip">R${round} · P${idxInRound+1}</span>
+            <span class="chip">P${idxInRound+1}</span>
           </td>`;
       });
 
       bodyRows.push(`<tr><th class="nowrap">Round ${round}</th>${rowSlots.join("")}</tr>`);
     }
-    boardBody.innerHTML = bodyRows.join("") || `<tr><td class="muted">No draft picks yet</td></tr>`;
+
+    boardBody.innerHTML = bodyRows.join("");
+
+    // Force board to start on the far left every time it renders
+    if(wrap) wrap.scrollLeft = 0;
   }
 
   // results (feed)
@@ -332,4 +378,3 @@
 </script>
 </body>
 </html>
-
