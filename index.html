@@ -14,35 +14,21 @@
   header{padding:16px 18px;border-bottom:1px solid var(--br);background:#0f1319}
   h1{margin:0;color:var(--accent);font-size:22px}
   #status{color:var(--muted);font-size:13px;margin-top:6px}
-
-  /* widen layout so 12 columns can actually fit */
-  main{
-    width:min(1800px, calc(100vw - 32px));
-    margin:0 auto;
-    padding:18px 0 26px;
-  }
+  main{max-width:1200px;margin:0 auto;padding:18px}
 
   /* tabs */
-  .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px;padding:0 16px}
+  .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
   .tab-btn{
     padding:10px 14px;border:1px solid var(--br);border-radius:10px;background:#0f141a;color:var(--text);
     cursor:pointer;font-weight:600
   }
   .tab-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
-  .tab{display:none;padding:0 16px}
+  .tab{display:none}
   .tab.active{display:block}
 
   /* cards + tables */
   .card{background:var(--card);border:1px solid var(--br);border-radius:12px;padding:14px}
-  table{
-    width:100%;
-    border-collapse:collapse;
-    margin-top:10px;
-    background:var(--card);
-    border:1px solid var(--br);
-    border-radius:10px;
-    overflow:hidden
-  }
+  table{width:100%;border-collapse:collapse;margin-top:10px;background:var(--card);border:1px solid var(--br);border-radius:10px;overflow:hidden}
   th,td{padding:10px;border-bottom:1px solid var(--br);text-align:left;vertical-align:top}
   th{background:#111721;color:#b7c6d6}
   tr:hover td{background:#0f141a}
@@ -51,61 +37,13 @@
   .row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
   @media (max-width:900px){ .row{grid-template-columns:1fr} }
 
-  /* flag */
-  .flag{
-    display:inline-block;
-    width:1.2em;
-    margin-right:6px;
-    filter:saturate(1.05);
-    transform:translateY(1px);
-  }
-
-  /* --- Draft Board: make it fit nicely --- */
-  /* lock column widths so 12 columns compress instead of blowing out */
-  #tblBoard{ table-layout:fixed; }
-  #tblBoard th, #tblBoard td{ padding:8px 6px; }
-  #tblBoard tbody th{ width:112px; } /* Round label column */
-  #tblBoard td{ width:auto; }
-
   /* draft board cells */
-  .slot{min-width:0}
-  .slot strong{
-    display:block;
-    font-weight:750;
-    font-size:13px;
-    line-height:1.15;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  .slot .meta{
-    font-size:11px;
-    color:var(--muted);
-    margin-top:4px;
-    line-height:1.25;
-    display:-webkit-box;
-    -webkit-box-orient:vertical;
-    -webkit-line-clamp:2;   /* keep it compact */
-    overflow:hidden;
-  }
-  .slot .chip{
-    display:inline-block;
-    margin-top:6px;
-    padding:2px 7px;
-    border:1px solid var(--br);
-    border-radius:999px;
-    background:#0f141a;
-    font-size:10px;
-    white-space:nowrap;
-  }
+  .slot{min-width:170px}
+  .slot strong{font-weight:700}
+  .slot .meta{font-size:12px;color:var(--muted)}
+  .slot .chip{display:inline-block;margin-top:6px;padding:2px 8px;border:1px solid var(--br);border-radius:999px;background:#0f141a;font-size:11px}
   .nowrap{white-space:nowrap}
   .center{ text-align:center }
-
-  /* small screens: allow horizontal scroll instead of microscopic text */
-  .board-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  @media (max-width:1100px){
-    #tblBoard{ min-width:1100px; } /* scroll only on smaller screens */
-  }
 </style>
 </head>
 <body>
@@ -156,12 +94,10 @@
   <section id="tab-board" class="tab">
     <div class="card">
       <div class="muted">Snake order per round. In each round, picks are ordered by insert time (earlier = lower pick #). Odd rounds go left→right; even rounds right→left.</div>
-      <div class="board-wrap">
-        <table id="tblBoard">
-          <thead id="boardHead"></thead>
-          <tbody id="boardBody"></tbody>
-        </table>
-      </div>
+      <table id="tblBoard">
+        <thead id="boardHead"></thead>
+        <tbody id="boardBody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -181,6 +117,7 @@
 
 <script type="module">
   import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
 
   // Supabase (your project)
   const SUPABASE_URL = "https://mdreidvoocngzailutqy.supabase.co";
@@ -212,47 +149,6 @@
 
   // state
   const state = { players:[], picks:[], results:[] };
-
-  // --- Flags ---
-  // Accepts NOC-like 3-letter codes (USA/CAN/etc) or 2-letter ISO (US/CA/etc)
-  const NOC_TO_ISO2 = {
-    USA:"US", CAN:"CA", GBR:"GB", GER:"DE", FRA:"FR", ITA:"IT", NED:"NL", SUI:"CH",
-    SWE:"SE", NOR:"NO", FIN:"FI", DEN:"DK", ISL:"IS", IRL:"IE", BEL:"BE", AUT:"AT",
-    ESP:"ES", POR:"PT", POL:"PL", CZE:"CZ", SVK:"SK", SLO:"SI", CRO:"HR", SRB:"RS",
-    HUN:"HU", ROU:"RO", BUL:"BG", UKR:"UA", EST:"EE", LAT:"LV", LTU:"LT",
-    RUS:"RU", KAZ:"KZ", UZB:"UZ", AZE:"AZ", ARM:"AM", GEO:"GE", TUR:"TR", ISR:"IL",
-    CHN:"CN", JPN:"JP", KOR:"KR", PRK:"KP", MGL:"MN", TPE:"TW", HKG:"HK",
-    AUS:"AU", NZL:"NZ",
-    BRA:"BR", ARG:"AR", CHI:"CL", COL:"CO", PER:"PE", ECU:"EC", VEN:"VE", URU:"UY", MEX:"MX",
-    RSA:"ZA", EGY:"EG", MAR:"MA", TUN:"TN", ALG:"DZ", NGA:"NG", KEN:"KE", ETH:"ET"
-  };
-
-  function iso2ToFlag(iso2){
-    if(!iso2 || typeof iso2 !== "string") return "";
-    const s = iso2.trim().toUpperCase();
-    if (s.length !== 2) return "";
-    const A = 0x1F1E6;
-    const code1 = s.charCodeAt(0) - 65;
-    const code2 = s.charCodeAt(1) - 65;
-    if(code1<0 || code1>25 || code2<0 || code2>25) return "";
-    return String.fromCodePoint(A + code1, A + code2);
-  }
-
-  function countryToFlag(country){
-    if(!country) return "";
-    const c = String(country).trim();
-    // already a flag emoji?
-    if(/[\u{1F1E6}-\u{1F1FF}]/u.test(c)) return c;
-    const up = c.toUpperCase();
-    if (up.length === 2) return iso2ToFlag(up);
-    if (NOC_TO_ISO2[up]) return iso2ToFlag(NOC_TO_ISO2[up]);
-    return ""; // unknown code; keep it clean
-  }
-
-  function flagHTML(country){
-    const f = countryToFlag(country);
-    return f ? `<span class="flag" title="${country}">${f}</span>` : "";
-  }
 
   // load
   async function loadAll(){
@@ -362,7 +258,7 @@
       .map(p=>`
         <tr>
           <td>${byPlayer.get(p.player_id) || "?"}</td>
-          <td>${flagHTML(p.country)}${p.country}</td>
+          <td>${p.country}</td>
           <td>${p.discipline}</td>
           <td>${(p.multiplier||1).toFixed(2)}</td>
           <td>${p.round||""}</td>
@@ -380,18 +276,13 @@
     const numTeams = players.length || Math.max( (new Set(state.picks.map(p=>p.player_id))).size, 0 );
     const maxRound = Math.max(0, ...state.picks.map(p=>p.round || 0));
 
+  
+
     // Figure base order from Round 1 earliest picks; fallback: alphabetical by player name
     const r1 = state.picks.filter(p=>p.round===1).sort((a,b)=>a.id-b.id);
     const orderIds = r1.length===numTeams
       ? r1.map(p=>p.player_id)
       : players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>p.id);
-
-    // Optional header row so it looks cleaner
-    const headerCells = (orderIds.length ? orderIds : players.map(p=>p.id)).map(pid=>{
-      const nm = byPlayer.get(pid) || "Player";
-      return `<th class="nowrap" title="${nm}">${nm}</th>`;
-    });
-    boardHead.innerHTML = `<tr><th class="nowrap">Round</th>${headerCells.join("")}</tr>`;
 
     // Build a map { round -> [slots of length numTeams] } and fill via snake
     const bodyRows = [];
@@ -400,15 +291,16 @@
       const picksThisRound = state.picks.filter(p=>p.round===round).sort((a,b)=>a.id-b.id);
 
       picksThisRound.forEach((pick, idxInRound)=>{
+        // slot index in left-to-right order
         let col = idxInRound;
         if (round % 2 === 0) col = (numTeams-1) - idxInRound; // snake reverse on even rounds
-        if (col<0 || col>=numTeams) return;
+        if (col<0 || col>=numTeams) return; // ignore overflow
 
         const playerName = byPlayer.get(pick.player_id) || "Player";
         rowSlots[col] = `
-          <td class="slot" title="${playerName} — ${pick.country} ${pick.discipline}">
+          <td class="slot">
             <strong>${playerName}</strong>
-            <div class="meta">${flagHTML(pick.country)}${pick.country} · ${pick.discipline} × ${(pick.multiplier||1)}</div>
+            <div class="meta">${pick.country} · ${pick.discipline} × ${(pick.multiplier||1)}</div>
             <span class="chip">R${round} · P${idxInRound+1}</span>
           </td>`;
       });
@@ -426,8 +318,8 @@
         <tr>
           <td>${r.ts ? new Date(r.ts).toLocaleString() : "-"}</td>
           <td>${r.discipline}</td>
-          <td>${flagHTML(r.country)}${r.country}</td>
-          <td>${r.medal</td>
+          <td>${r.country}</td>
+          <td>${r.medal}</td>
           <td class="muted">${r.event_id||"-"}</td>
         </tr>
       `).join("");
