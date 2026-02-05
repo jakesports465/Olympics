@@ -276,13 +276,7 @@
     const numTeams = players.length || Math.max( (new Set(state.picks.map(p=>p.player_id))).size, 0 );
     const maxRound = Math.max(0, ...state.picks.map(p=>p.round || 0));
 
-    // Build header: Round / Pick 1...Pick N
-    const headRow = `
-      <tr>
-        <th class="nowrap">Round</th>
-        ${Array.from({length:numTeams}, (_,i)=>`<th class="center">Pick ${i+1}</th>`).join("")}
-      </tr>`;
-    boardHead.innerHTML = headRow;
+  
 
     // Figure base order from Round 1 earliest picks; fallback: alphabetical by player name
     const r1 = state.picks.filter(p=>p.round===1).sort((a,b)=>a.id-b.id);
@@ -338,3 +332,4 @@
 </script>
 </body>
 </html>
+
